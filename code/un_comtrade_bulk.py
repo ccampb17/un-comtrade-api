@@ -149,25 +149,25 @@ for cmdty in cbam_sectors_hs.keys():
 
     cbam_data_by_commodity[cmdty] = cbam_data_m49_chunks
 
-#    cbam_data_by_commodity[cmdty] = comtradeapicall.getTarifflineData(**_request_params)
+    # cbam_data_by_commodity[cmdty] = comtradeapicall.getTarifflineData(**_request_params)
 
     # attempt to cheat the rate limiter
 
 
-
-# example loop for years
-cbam_data_years = dict()
-
-for year in range(start_year, end_year+1):
-    print(f'Starting request for year {year}')
-
-    request_params_y = request_params.copy() # keep original params constant
-
-    request_params_y['period'] = str(year)
-
-    cbam_data_years[year] = comtradeapicall.previewFinalData(**request_params_y)
-
-    sys.sleep(5)
+#
+# # example loop for years
+# cbam_data_years = dict()
+#
+# for year in range(start_year, end_year+1):
+#     print(f'Starting request for year {year}')
+#
+#     request_params_y = request_params.copy() # keep original params constant
+#
+#     request_params_y['period'] = str(year)
+#
+#     cbam_data_years[year] = comtradeapicall.previewFinalData(**request_params_y)
+#
+#     sys.sleep(5)
 
 
 
