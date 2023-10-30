@@ -16,18 +16,14 @@ from datetime import timedelta
 # load environment vars, e.g. subscription key
 load_dotenv()
 
-
 # sub key should be stored properly in the .env file
 print('make sure your subscription key is stored in the .env file AND that file is gitignored!')
-
-
 subscription_key = os.getenv("comtrade_user_subscription_key")
 # comtrade api subscription key (from comtradedeveloper.un.org)
 
 data_directory = './data'  # output directory for downloaded files
 
-# set some variables
-
+# set some time-related variables, if needed
 today = date.today()
 yesterday = today - timedelta(days=1)
 lastweek = today - timedelta(days=7)
@@ -35,18 +31,59 @@ lastweek = today - timedelta(days=7)
 # get cbam data
 cbam_hs_df = pd.read_csv(f'{data_directory}/cbam_hs.csv')
 
-# get hs codes
+
+
+### SET UP HS CODES
 cbam_hs = ','.join(str(x) for x in cbam_hs_df['HS 6-digit (text)'])
 
-# TODO work out why it doesn't work when putting cbam_hs in the cmdCode param
+cbam_hs_df.columns
+
+cbam_sectors = cbam_hs_df['CBAM Sector'].unique()
+
+cbam_sectors_hs = dict()
+
+for s in cbam_sectors:
+    cbam_sectors_hs[s] = ','.join(str(x) for x in cbam_hs_df['HS 6-digit (text)'][cbam_hs_df['CBAM Sector'] == s])
+
+
+### SET UP TIMEFRAME
+
+start_year = 2015
+end_year = 2023
+
+years_desired = ','.join("%d"%i for i in range(start_year, end_year+1))
+
+
+### SET UP DESIRED JURS
+un_country = pd.read_csv(f'{data_directory}/UNSD_Methodology.csv',sep=';')
+
+un_country_m49_all = ','.join(str(x) for x in un_country['M49 Code'])
+
+un_country_m49_chunks = dict()
+
+chunk_size = 50
+
+for chk in range(0, un_country.shape[0]+1, 50):
+
+    chunk_upper_lim = chk+50
+
+    if chunk_upper_lim>(un_country.shape[0]+1):
+        chunk_upper_lim  = un_country.shape[0] + 1
+
+    print(chk)
+
+    un_country_m49_chunks[chk] = ','.join(str(x) for x in un_country['M49 Code'][chk:chunk_upper_lim])
+
+
 
 request_params = {
+    'subscription_key': subscription_key,
     'typeCode': 'C', # C commodities; S service
-    'freqCode': 'M', # A annual; M monthly
+    'freqCode': 'A', # A annual; M monthly
     'clCode': 'HS', # HS; SITC; BEC; EBOPS
     'period': 2020, # year or month in form YYYY or YYYYMM respectively # will add that in loop later on
     'reporterCode': '36', # M49 code of countries, csv
-    'cmdCode': cbam_hs, #'91', #your HS codes
+    #'cmdCode': cbam_hs, #'91', #your HS codes
     'flowCode': 'M', # rest of the params aren't listed on the param explanation page, lol
     'partnerCode': None,
     'partner2Code': None,
@@ -54,15 +91,71 @@ request_params = {
     'motCode': None, 
     'maxRecords': None,
     'format_output': 'JSON',
-    'aggregateBy': None, 
-    'breakdownMode': 'classic', 
+#    'aggregateBy': None,
+#    'breakdownMode': 'classic',
     'countOnly': None, 
     'includeDesc': True
 }
 
-start_year = 2018
-end_year = 2023
+# basic example of api call
+#cbam_df = comtradeapicall.previewFinalData(**request_params)
 
+##### ITERATING OVER JURISDICTION CHUNKS #####
+
+
+### ITERATING OVER COMMODITY GROUPS ####
+cbam_data_by_commodity = dict()
+
+cbam_data_all = pd.DataFrame()
+failed_requests = dict()
+
+for cmdty in cbam_sectors_hs.keys():
+
+    cmdty = 'Iron and Steel' # DBG DBG DBG
+    print(f'Starting request for {cmdty}')
+
+    # have to do nested loop as the requests fail when they're too large
+    # so need to break them up in this stupid way
+
+    _request_params = request_params.copy() # keep original params constant
+
+    #_request_params['reporterCode'] = un_country_m49_all
+    _request_params['period'] = years_desired
+
+    _request_params['cmdCode'] = cbam_sectors_hs[cmdty]
+    #_request_params['cmdCode'] = '760110'
+    cbam_data_m49_chunks = dict()
+#    for chk in un_country_m49_chunks.keys():
+
+        chk = 100 # DBG DBG DBG
+
+        print(f'Starting request for {chk}')
+
+        _request_params['reporterCode'] = un_country_m49_chunks[chk]
+
+        ##### EXECUTE API CALL #####
+        try:
+            request_df = comtradeapicall.getTarifflineData(**_request_params)
+        except Exception as e:
+            print('Request failed successfully! (ie it didn\'t work)')
+            print(e)
+            request_df = pd.DataFrame()
+            failed_requests[cmdty] = chk
+
+        cbam_data_m49_chunks[chk] = request_df
+
+        cbam_data_all = pd.concat([cbam_data_all, request_df])
+        cbam_data_all.to_csv(f'{data_directory}/cbam_data_all.csv')
+
+    cbam_data_by_commodity[cmdty] = cbam_data_m49_chunks
+
+#    cbam_data_by_commodity[cmdty] = comtradeapicall.getTarifflineData(**_request_params)
+
+    # attempt to cheat the rate limiter
+
+
+
+# example loop for years
 cbam_data_years = dict()
 
 for year in range(start_year, end_year+1):
@@ -77,99 +170,8 @@ for year in range(start_year, end_year+1):
     sys.sleep(5)
 
 
-#cbam_df = comtradeapicall.previewFinalData(**request_params)
 
 
-##### EXAMPLES #####
-# Call preview final data API to a data frame, max to 500 records, no subscription key required
-# This example: Australia imports of commodity code 91 in classic mode in May 2022
-mydf = comtradeapicall.previewFinalData(typeCode='C', 
-                                        freqCode='M', 
-                                        clCode='HS', 
-                                        period='202205',
-                                        reporterCode='36', 
-                                        cmdCode='760110,760120,760120,760310,760320,760410,760410,760421,760429,760429,760511,760519,760521,760529',#cbam_hs,#'91,86',
-                                        flowCode='M', 
-                                        partnerCode=None,
-                                        partner2Code=None,
-                                        customsCode=None, 
-                                        motCode=None, 
-                                        maxRecords=500, 
-                                        format_output='JSON',
-                                        aggregateBy=None, 
-                                        breakdownMode='classic', 
-                                        countOnly=None, 
-                                        includeDesc=True)
-mydf.head(5)
-
-
-
-# Call preview tariffline data API to a data frame, max to 500 records, no subscription key required
-# This example: Australia imports of commodity code started with 90 and 91 from Indonesia in May 2022
-mydf = comtradeapicall.previewTarifflineData(typeCode='C', freqCode='M', clCode='HS', period='202205',
-                                             reporterCode='36', cmdCode='91,90', flowCode='M', partnerCode=36,
-                                             partner2Code=None,
-                                             customsCode=None, motCode=None, maxRecords=500, format_output='JSON',
-                                             countOnly=None, includeDesc=True)
-mydf.head(5)
-
-
-
-# Call get final data API to a data frame, max to 250K records, subscription key required
-# This example: Australia imports of commodity codes 90 and 91 from all partners in classic mode in May 2022
-mydf = comtradeapicall.getFinalData(subscription_key, typeCode='C', freqCode='M', clCode='HS', period='202205',
-                                    reporterCode='36', cmdCode='91,90', flowCode='M', partnerCode=None,
-                                    partner2Code=None,
-                                    customsCode=None, motCode=None, maxRecords=2500, format_output='JSON',
-                                    aggregateBy=None, breakdownMode='classic', countOnly=None, includeDesc=True)
-mydf.head(5)
-
-
-
-# Call get tariffline data API to a data frame, max to 250K records, subscription key required
-# This example: Australia imports of commodity code started with 90 and 91 from Indonesia in May 2022
-mydf = comtradeapicall.getTarifflineData(subscription_key, typeCode='C', freqCode='M', clCode='HS', period='202205',
-                                         reporterCode='36', cmdCode='91,90', flowCode='M', partnerCode=36,
-                                         partner2Code=None,
-                                         customsCode=None, motCode=None, maxRecords=2500, format_output='JSON',
-                                         countOnly=None, includeDesc=True)
-mydf.head(5)
-
-
-
-# Call bulk download final file(s) API to output dir, (premium) subscription key required
-# This example: Download monthly France final data of Jan-2000
-comtradeapicall.bulkDownloadFinalFile(subscription_key, directory, typeCode='C', freqCode='M', clCode='HS',
-                                      period='200001', reporterCode=251, decompress=True)
-
-
-
-# Call bulk download tariff data file(s) to output dir, (premium) subscription key required
-# This example: Download monthly France tariffline data of Jan-2000
-comtradeapicall.bulkDownloadTarifflineFile(subscription_key, directory, typeCode='C', freqCode='M', clCode='HS',
-                                           period='200001,200002,200003', reporterCode=504, decompress=True)
-
-
-
-# Call bulk download tariff data file(s) to output dir, (premium) subscription key required
-# This example: Download annual Morocco  data of 2010
-comtradeapicall.bulkDownloadTarifflineFile(subscription_key, directory, typeCode='C', freqCode='A', clCode='HS',
-                                           period='2010', reporterCode=504, decompress=True)
-
-
-
-# Call data availability for annual HS in 2021
-mydf = comtradeapicall.getFinalDataAvailability(subscription_key, typeCode='C', freqCode='A', clCode='HS',
-                                                period='2021', reporterCode=None)
-mydf.head(5)
-
-
-
-
-# Call tariffline data availability for monthly HS in Jun-2022
-mydf = comtradeapicall.getTarifflineDataAvailability(subscription_key, typeCode='C', freqCode='M', clCode='HS',
-                                                     period='202206', reporterCode=None)
-mydf.head(5)
 
 
 
