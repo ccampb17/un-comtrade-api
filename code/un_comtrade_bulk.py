@@ -43,8 +43,23 @@ cbam_sectors = cbam_hs_df['CBAM Sector'].unique()
 cbam_sectors_hs = dict()
 
 for s in cbam_sectors:
-    cbam_sectors_hs[s] = ','.join(str(x) for x in cbam_hs_df['HS 6-digit (text)'][cbam_hs_df['CBAM Sector'] == s])
+    num_products = cbam_hs_df['HS 6-digit (text)'][cbam_hs_df['CBAM Sector'] == s].shape[0]
+    if num_products <= 100:
+        cbam_sectors_hs[s] = ','.join(str(x) for x in cbam_hs_df['HS 6-digit (text)'][cbam_hs_df['CBAM Sector'] == s])
+    else:
+        print(f'Too many HS codes for the UN API to handle ({num_products}). Splitting into chunks...')
+        for chk in range(0, num_products + 1, 100):
 
+            chk_name = f'{s}_{chk}'
+
+            print(f'{chk_name}')
+
+            chunk_upper_lim = chk + 100
+
+            if chunk_upper_lim > (num_products + 1):
+                chunk_upper_lim = num_products + 1
+
+            cbam_sectors_hs[chk_name] = ','.join(str(x) for x in cbam_hs_df['HS 6-digit (text)'][cbam_hs_df['CBAM Sector'] == s][chk:chunk_upper_lim])
 
 ### SET UP TIMEFRAME
 
@@ -65,14 +80,16 @@ chunk_size = 50
 
 for chk in range(0, un_country.shape[0]+1, 50):
 
+    chk_name = f'm49_{chk}'
+
     chunk_upper_lim = chk+50
 
     if chunk_upper_lim>(un_country.shape[0]+1):
         chunk_upper_lim  = un_country.shape[0] + 1
 
-    print(chk)
+    print(f'{chk_name}')
 
-    un_country_m49_chunks[chk] = ','.join(str(x) for x in un_country['M49 Code'][chk:chunk_upper_lim])
+    un_country_m49_chunks[chk_name] = ','.join(str(x) for x in un_country['M49 Code'][chk:chunk_upper_lim])
 
 
 
@@ -111,7 +128,7 @@ failed_requests = dict()
 
 for cmdty in cbam_sectors_hs.keys():
 
-    cmdty = 'Iron and Steel' # DBG DBG DBG
+    # cmdty = 'Iron and Steel' # DBG DBG DBG
     print(f'Starting request for {cmdty}')
 
     # have to do nested loop as the requests fail when they're too large
@@ -124,10 +141,11 @@ for cmdty in cbam_sectors_hs.keys():
 
     _request_params['cmdCode'] = cbam_sectors_hs[cmdty]
     #_request_params['cmdCode'] = '760110'
-    cbam_data_m49_chunks = dict()
-#    for chk in un_country_m49_chunks.keys():
 
-        chk = 100 # DBG DBG DBG
+    cbam_data_m49_chunks = dict()
+    for chk in un_country_m49_chunks.keys():
+
+        # chk = 100 # DBG DBG DBG
 
         print(f'Starting request for {chk}')
 
